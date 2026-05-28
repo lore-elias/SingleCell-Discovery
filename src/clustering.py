@@ -1,46 +1,128 @@
 """
-PCA for dimensionality reduction
+Clustering module for single-cell RNA-seq data.
 
-UMAP embedding
-
-Leiden/Louvain clustering with multiple resolution options
-
-Return cluster assignments and embeddings
+Functions for PCA reduction, UMAP embedding, and Leiden clustering.
 """
 
-import numpy as np
-import umap
+from typing import Optional, Tuple
 import scanpy as sc
-import leidenalg
-import igraph as ig
-from sklearn.decomposition import PCA
+from anndata import AnnData
 
-def perform_clustering(data, n_pcs=50, n_neighbors=15, min_dist=0.1, resolution=1.0):
-    # Step 1: PCA for dimensionality reduction
-    pca = PCA(n_components=n_pcs)
-    pca_result = pca.fit_transform(data)
-
-    # Step 2: UMAP embedding
-    umap_embedder = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist)
-    umap_embedding = umap_embedder.fit_transform(pca_result)
-
-    # Step 3: Leiden clustering
-    # Create a k-nearest neighbor graph
-    knn_graph = sc.pp.neighbors(pca_result, n_neighbors=n_neighbors, return_graph=True)
+def compute_pca(adata: AnnData, n_pcs: int = 50) -> AnnData:
+    """Compute PCA on the data.
     
-    # Convert to igraph format
-    g = ig.Graph.Adjacency((knn_graph > 0).tolist())
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix.
+    n_pcs : int, optional
+        Number of principal components (default: 50).
+        
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with PCA coordinates in obsm['X_pca'].
+    """
+    sc.tl.pca(adata, n_comps=n_pcs)
+    print(f"PCA computed: {n_pcs} components")
+    return adata
+
+
+def compute_neighbors(adata: AnnData, n_neighbors: int = 15, n_pcs: int = 50) -> AnnData:
+    """Compute neighborhood graph.
     
-    # Perform Leiden clustering
-    partition = leidenalg.find_partition(g, leidenalg.RBConfigurationVertexPartition, resolution_parameter=resolution)
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with PCA coordinates.
+    n_neighbors : int, optional
+        Number of neighbors (default: 15).
+    n_pcs : int, optional
+        Number of PCA dimensions to use (default: 50).
+        
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with neighbor graph.
+    """
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, n_pcs=n_pcs)
+    print(f"Neighbors computed: k={n_neighbors}")
+    return adata
+
+
+def compute_umap(adata: AnnData, min_dist: float = 0.1) -> AnnData:
+    """Compute UMAP embedding.
     
-    # Get cluster assignments
-    cluster_assignments = np.array(partition.membership)
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with neighbor graph.
+    min_dist : float, optional
+        Minimum distance for UMAP (default: 0.1).
+        
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with UMAP coordinates in obsm['X_umap'].
+    """
+    sc.tl.umap(adata, min_dist=min_dist)
+    print("UMAP computed")
+    return adata
 
-    return cluster_assignments, umap_embedding
 
-# Example Usage
+def leiden_clustering(adata: AnnData, resolution: float = 1.0) -> AnnData:
+    """Leiden clustering.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with neighbor graph.
+    resolution : float, optional
+        Resolution parameter (default: 1.0). Higher values lead to more clusters.
+        
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with cluster assignments in obs['leiden'].
+    """
+    sc.tl.leiden(adata, resolution=resolution)
+    n_clusters = len(adata.obs['leiden'].unique())
+    print(f"Leiden clustering: {n_clusters} clusters found")
+    return adata
 
-# data = pd.read_csv('your_data.csv')  # Load your data here
-# cluster_assignments, umap_embedding = perform_clustering(data.values)
+
+def clustering_pipeline(
+    adata: AnnData,
+    n_pcs: int = 50,
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    resolution: float = 1.0
+) -> AnnData:
+    """Complete clustering pipeline.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix (preprocessed).
+    n_pcs : int, optional
+        Number of PCA components (default: 50).
+    n_neighbors : int, optional
+        Number of neighbors (default: 15).
+    min_dist : float, optional
+        UMAP minimum distance (default: 0.1).
+    resolution : float, optional
+        Leiden resolution (default: 1.0).
+        
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with PCA, UMAP, and cluster assignments.
+    """
+    print("Starting clustering pipeline...")
+    adata = compute_pca(adata, n_pcs)
+    adata = compute_neighbors(adata, n_neighbors, n_pcs)
+    adata = compute_umap(adata, min_dist)
+    adata = leiden_clustering(adata, resolution)
+    print("Clustering complete!")
+    return adata
 

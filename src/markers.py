@@ -1,81 +1,146 @@
 """
-Differential expression analysis (Wilcoxon, t-test)
+Marker gene detection module for single-cell RNA-seq data.
 
-Identify top marker genes per cluster
-
-Statistical significance filtering
-
-Generate marker gene tables
+Functions for differential expression analysis and marker gene identification.
 """
 
+from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
-from scipy import stats
-from statsmodels.stats.multitest import multipletests
+import scanpy as sc
+from anndata import AnnData
 
-def differential_expression(data, labels, method='wilcoxon'):
-    """
-    Perform differential expression analysis between clusters.
-
-    Parameters:
-    data (pd.DataFrame): Gene expression data (genes x samples).
-    labels (pd.Series): Cluster labels for each sample.
-    method (str): Statistical test to use ('wilcoxon' or 't-test').
-
-    Returns:
-    pd.DataFrame: DataFrame containing marker genes and statistics.
-    """
-    results = []
-    unique_clusters = labels.unique()
+def rank_marker_genes(
+    adata: AnnData,
+    groupby: str = 'leiden',
+    method: str = 'wilcoxon',
+    key_added: str = 'rank_genes_groups'
+) -> AnnData:
+    """Identify marker genes per cluster using ranking.
     
-    for cluster in unique_clusters:
-        cluster_samples = data.columns[labels == cluster]
-        other_samples = data.columns[labels != cluster]
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with cluster assignments.
+    groupby : str, optional
+        Column in obs containing cluster labels (default: 'leiden').
+    method : str, optional
+        Statistical test ('wilcoxon' or 't-test', default: 'wilcoxon').
+    key_added : str, optional
+        Key to store results (default: 'rank_genes_groups').
         
-        for gene in data.index:
-            if method == 'wilcoxon':
-                stat, p_value = stats.ranksums(data.loc[gene, cluster_samples], data.loc[gene, other_samples])
-            elif method == 't-test':
-                stat, p_value = stats.ttest_ind(data.loc[gene, cluster_samples], data.loc[gene, other_samples])
-            else:
-                raise ValueError("Method must be 'wilcoxon' or 't-test'")
-            
-            results.append({'gene': gene, 'cluster': cluster, 'statistic': stat, 'p_value': p_value})
-    
-    results_df = pd.DataFrame(results)
-    
-    # Adjust p-values for multiple testing
-    results_df['adjusted_p_value'] = multipletests(results_df['p_value'], method='fdr_bh')[1]
-    
-    return results_df
-
-def filter_markers(results_df, p_value, threshold=0.05):
+    Returns
+    -------
+    AnnData
+        Annotated data matrix with marker genes in .uns[key_added].
     """
-    Filter marker genes based on adjusted p-value.
-
-    Parameters:
-    results_df (pd.DataFrame): DataFrame containing marker genes and statistics.
-    p_value_threshold (float): Threshold for adjusted p-value.
-
-    Returns:
-    pd.DataFrame: Filtered DataFrame containing significant marker genes.
-    """
-    filtered_df = results_df[results_df['adjusted_p_value'] < threshold]
-    return filtered_df.sort_values(by='adjusted_p_value')
-
-def generate_marker_tables(filtered_df):
-    """
-    Generate marker gene tables for each cluster.
-
-    Parameters:
-    filtered_df (pd.DataFrame): DataFrame containing significant marker genes.
-
-    Returns:
-    dict: Dictionary of DataFrames, one for each cluster.
-    """
-    marker_tables = {}
-    for cluster in filtered_df['cluster'].unique():
-        marker_tables[cluster] = filtered_df[filtered_df['cluster'] == cluster].sort_values(by='adjusted_p_value')
+    valid_methods = ['wilcoxon', 't-test']
+    if method not in valid_methods:
+        raise ValueError(f"Method must be one of {valid_methods}, got {method}")
     
-    return marker_tables
+    sc.tl.rank_genes_groups(adata, groupby=groupby, method=method, key_added=key_added)
+    print(f"Marker genes ranked ({method})")
+    return adata
+
+def get_marker_genes(
+    adata: AnnData,
+    n_genes: int = 10,
+    key: str = 'rank_genes_groups'
+) -> Dict[str, pd.DataFrame]:
+    """Extract top marker genes per cluster.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with ranked marker genes.
+    n_genes : int, optional
+        Number of top genes per cluster (default: 10).
+    key : str, optional
+        Key containing ranking results (default: 'rank_genes_groups').
+        
+    Returns
+    -------
+    dict
+        Dictionary mapping cluster names to DataFrames of top marker genes.
+    """
+    if key not in adata.uns:
+        raise ValueError(f"Key '{key}' not found in adata.uns. Run rank_marker_genes first.")
+    
+    marker_dict = {}
+    ranking = adata.uns[key]
+    clusters = ranking['names'].dtype.names
+    
+    for cluster in clusters:
+        genes = ranking['names'][cluster][:n_genes]
+        scores = ranking['scores'][cluster][:n_genes]
+        logfolds = ranking['logfoldchanges'][cluster][:n_genes]
+        pvals = ranking['pvals_adj'][cluster][:n_genes]
+        
+        marker_dict[cluster] = pd.DataFrame({
+            'gene': genes,
+            'score': scores,
+            'logfoldchange': logfolds,
+            'pval_adj': pvals
+        })
+    
+    return marker_dict
+
+def export_marker_genes(
+    marker_dict: Dict[str, pd.DataFrame],
+    output_dir: str = 'results/'
+) -> None:
+    """Export marker genes to CSV files.
+    
+    Parameters
+    ----------
+    marker_dict : dict
+        Dictionary of marker gene DataFrames per cluster.
+    output_dir : str, optional
+        Output directory for CSV files (default: 'results/').
+    """
+    import os
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for cluster, df in marker_dict.items():
+        filepath = os.path.join(output_dir, f'markers_cluster_{cluster}.csv')
+        df.to_csv(filepath, index=False)
+        print(f"Exported: {filepath}")
+
+
+def marker_gene_pipeline(
+    adata: AnnData,
+    groupby: str = 'leiden',
+    method: str = 'wilcoxon',
+    n_genes: int = 10,
+    output_dir: Optional[str] = None
+) -> Tuple[AnnData, Dict[str, pd.DataFrame]]:
+    """Complete marker gene detection pipeline.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        Annotated data matrix with cluster assignments.
+    groupby : str, optional
+        Column containing cluster labels (default: 'leiden').
+    method : str, optional
+        Statistical test method (default: 'wilcoxon').
+    n_genes : int, optional
+        Number of top genes per cluster (default: 10).
+    output_dir : str, optional
+        Directory to export marker genes. If None, no export.
+        
+    Returns
+    -------
+    tuple
+        Updated AnnData object and dictionary of marker gene DataFrames.
+    """
+    print("Starting marker gene detection pipeline...")
+    adata = rank_marker_genes(adata, groupby=groupby, method=method)
+    marker_dict = get_marker_genes(adata, n_genes=n_genes)
+    
+    if output_dir:
+        export_marker_genes(marker_dict, output_dir)
+    
+    print(f"Marker genes detected for {len(marker_dict)} clusters")
+    return adata, marker_dict
 

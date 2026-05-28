@@ -1,0 +1,27 @@
+# Configuration for single-cell RNA-seq discovery pipeline
+
+# Data paths
+data_dir: "data/"
+output_dir: "results/"
+input_file: "sample.h5ad"
+
+# Preprocessing parameters
+min_genes: 200           # Minimum genes per cell
+max_genes: 2500          # Maximum genes per cell
+max_mito: 0.05          # Maximum mitochondrial percentage (5%)
+n_top_genes: 2000        # Number of highly variable genes
+
+# Clustering parameters
+n_pcs: 50                # Number of PCA components
+n_neighbors: 15          # Number of neighbors for kNN graph
+resolution: 1.0          # Leiden clustering resolution
+
+# Marker gene detection
+n_markers: 10            # Top marker genes per cluster
+marker_method: "wilcoxon"  # Statistical test: wilcoxon or t-test
+
+# Visualization
+plot_formats:
+  - html                 # Interactive Plotly plots
+  - png                  # Static matplotlib plots
+dpi: 300                # Resolution for static plots
