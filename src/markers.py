@@ -73,8 +73,13 @@ def get_marker_genes(
     for cluster in clusters:
         genes = ranking['names'][cluster][:n_genes]
         scores = ranking['scores'][cluster][:n_genes]
-        logfolds = ranking['logfoldchanges'][cluster][:n_genes]
-        pvals = ranking['pvals_adj'][cluster][:n_genes]
+        logfolds = np.full(len(genes), np.nan, dtype=float)
+        if 'logfoldchanges' in ranking:
+            logfolds = ranking['logfoldchanges'][cluster][:n_genes]
+        if 'pvals_adj' in ranking:
+            pvals = ranking['pvals_adj'][cluster][:n_genes]
+        else:
+            pvals = np.full(len(genes), np.nan, dtype=float)
         
         marker_dict[cluster] = pd.DataFrame({
             'gene': genes,

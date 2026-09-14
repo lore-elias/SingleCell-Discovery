@@ -65,7 +65,7 @@ def compute_umap(adata: AnnData, min_dist: float = 0.1) -> AnnData:
     AnnData
         Annotated data matrix with UMAP coordinates in obsm['X_umap'].
     """
-    sc.tl.umap(adata, min_dist=min_dist)
+    sc.tl.umap(adata, min_dist=min_dist, random_state=42)
     print("UMAP computed")
     return adata
 
@@ -85,7 +85,7 @@ def leiden_clustering(adata: AnnData, resolution: float = 1.0) -> AnnData:
     AnnData
         Annotated data matrix with cluster assignments in obs['leiden'].
     """
-    sc.tl.leiden(adata, resolution=resolution)
+    sc.tl.leiden(adata, resolution=resolution, random_state=42)
     n_clusters = len(adata.obs['leiden'].unique())
     print(f"Leiden clustering: {n_clusters} clusters found")
     return adata

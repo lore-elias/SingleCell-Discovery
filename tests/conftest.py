@@ -29,3 +29,22 @@ def basic_adata():
     adata.obs.index.name = "cell_names"
     
     return adata
+
+
+@pytest.fixture
+def sample_adata():
+    """Create a sample AnnData object for annotation and cluster tests."""
+    np.random.seed(42)
+    n_cells, n_genes = 100, 200
+
+    X = np.random.negative_binomial(5, 0.3, size=(n_cells, n_genes)).astype(np.float32)
+
+    adata = AnnData(X=X)
+    adata.obs['cell_id'] = [f"cell_{i}" for i in range(n_cells)]
+    var_names = [f"GENE_{i}" for i in range(n_genes)]
+
+    for i in range(10):
+        var_names[i] = f"MT-{i}"
+
+    adata.var_names = var_names
+    return adata

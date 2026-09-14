@@ -24,11 +24,14 @@ def sample_adata():
     X = np.random.negative_binomial(5, 0.3, size=(n_cells, n_genes)).astype(np.float32)
     
     adata = AnnData(X=X)
-    adata.var_names = [f"GENE_{i}" for i in range(n_genes)]
     adata.obs['cell_id'] = [f"cell_{i}" for i in range(n_cells)]
     
-    # Add some mitochondrial genes
-    adata.var_names[:10] = [f"MT-{i}" for i in range(10)]
+    var_names = [f"GENE_{i}" for i in range(n_genes)]
+
+    for i in range(10):
+        var_names[i] = f"MT-{i}"
+
+    adata.var_names = var_names
     
     return adata
 

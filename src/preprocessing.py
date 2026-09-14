@@ -66,19 +66,26 @@ def filter_cells(
     adata.obs['n_counts'] = np.asarray(adata.X.sum(axis=1)).flatten()
     
     # Calculate mitochondrial percentage
-    mito_genes = adata.var_names.str.startswith('MT-')
+    mito_genes = adata.var["MT"] if "MT" in adata.var.columns else adata.var_names.str.startswith("MT-")
     if mito_genes.sum() > 0:
         mito_counts = np.asarray(adata[:, mito_genes].X.sum(axis=1)).flatten()
-        adata.obs['mito_percent'] = mito_counts / adata.obs['n_counts']
+        adata.obs['mito_percent'] = np.where(
+            adata.obs['n_counts'] > 0,
+            mito_counts / adata.obs['n_counts'],
+            0
+        )
     else:
         adata.obs['mito_percent'] = 0
     
-    # Filter cells
+    mask = (
+        (adata.obs['n_genes'] >= min_genes)
+        & (adata.obs['n_genes'] <= max_genes)
+        & (adata.obs['mito_percent'] <= max_mito)
+    )
+
     initial_cells = adata.shape[0]
-    sc.pp.filter_cells(adata, min_genes=min_genes)
-    sc.pp.filter_cells(adata, max_genes=max_genes)
-    adata = adata[adata.obs['mito_percent'] < max_mito]
-    
+    adata = adata[mask].copy()
+
     print(f"Filtered: {initial_cells} → {adata.shape[0]} cells")
     return adata
 
@@ -117,8 +124,11 @@ def select_variable_genes(adata: AnnData, n_top_genes: int = 2000) -> AnnData:
         Annotated data matrix with only highly variable genes.
     """
     initial_genes = adata.shape[1]
-    sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes)
-    adata = adata[:, adata.var['highly_variable']]
+    try:
+        sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, flavor='seurat_v3')
+    except (ImportError, ValueError):
+        sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, flavor='seurat')
+    adata = adata[:, adata.var['highly_variable']].copy()
     print(f"Gene selection: {initial_genes} → {adata.shape[1]} genes")
     return adata
 
